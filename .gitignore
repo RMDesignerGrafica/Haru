@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Ambiente virtual e ferramentas
+.venv/
+.env
+.env.*
+
+# Dados privados do cofre
+Cofre_dados/
+
+# Artefatos de build
+build/
+dist/
+Haru.spec

@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Haru IA</title>
+  <link rel="icon" href="Haru.ico" type="image/x-icon">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="janela">
+
+    <!-- Identidade do Haru -->
+    <aside class="painel-rosto">
+      <img class="rosto" id="rosto" src="Haru.avif" alt="Haru, um Yorkshire Terrier"
+           width="180" height="180">
+      <div class="identidade">
+        <h1>Haru IA</h1>
+        <p id="texto-status">Pronta para criptografar</p>
+      </div>
+    </aside>
+
+    <!-- Lado do chat -->
+    <section class="chat">
+      <div class="mensagens" id="mensagens" aria-live="polite"></div>
+
+      <form class="entrada" id="formulario">
+        <input
+          type="text"
+          id="campo"
+          placeholder="Ex.: criptografar texto: minha mensagem"
+          aria-label="Mensagem"
+          autocomplete="off">
+        <button type="submit">Enviar</button>
+      </form>
+    </section>
+
+  </main>
+
+  <script src="script.js"></script>
+</body>
+</html>

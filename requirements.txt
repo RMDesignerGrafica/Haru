@@ -1,0 +1,3 @@
+pywebview
+cryptography
+pyinstaller
