@@ -13,11 +13,13 @@ O workflow publica somente os arquivos estáticos da pasta `Interface`.
 
 ## Usar a criptografia
 
-- Para criar uma mensagem, escreva `criptografar texto: sua mensagem` ou peça uma mensagem escondida.
-- Combine uma senha com a outra pessoa e compartilhe-a por um canal separado do código. Senhas mais longas e únicas são mais seguras.
-- Envie o código `HARU2` gerado. A outra pessoa abre o mesmo site, cola o código e informa a senha.
+- Use os botões **Criptografar texto** e **Descriptografar texto** para iniciar uma operação; o Haru pedirá a mensagem ou o código no chat.
+- Ao criptografar, informe uma senha individual e depois a senha mestre. O código `HARU3` pode ser aberto com qualquer uma delas.
+- Ao criptografar, informe uma senha individual e depois a senha mestre. O código `HARU3` pode ser aberto com qualquer uma delas.
+- Digite a senha mestre no Haru; ela não fica gravada no site nem no código-fonte. Compartilhe-a somente com quem deve poder abrir as mensagens, por um canal seguro.
+- Envie o código gerado. A outra pessoa abre o mesmo site, cola o código e informa a senha individual ou a senha mestre.
 - O botão **Copiar código** copia somente o código criptografado.
 
-A criptografia usa a API Web Crypto do navegador: AES-GCM de 256 bits, com uma chave derivada da senha por PBKDF2/SHA-256 e sal e vetor de inicialização aleatórios. A mensagem e a senha não são enviadas ao GitHub Pages. Use o endereço HTTPS do site; o navegador precisa de um contexto seguro para criptografar.
+A criptografia usa a API Web Crypto do navegador: AES-GCM de 256 bits, com uma chave de mensagem aleatória protegida por duas chaves derivadas separadamente por PBKDF2/SHA-256. A mensagem e as senhas não são enviadas ao GitHub Pages. Use o endereço HTTPS do site; o navegador precisa de um contexto seguro para criptografar.
 
-Códigos `HARU1` criados pela versão Python para desktop não são compatíveis com a versão web. Gere um novo código no site para conversar entre dispositivos.
+Códigos `HARU2` da primeira versão web continuam sendo aceitos com a senha original. Códigos `HARU1` criados pela versão Python para desktop não são compatíveis. Gere um novo código no site para conversar entre dispositivos.

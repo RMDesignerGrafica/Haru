@@ -4,11 +4,13 @@ const campo = document.getElementById("campo");
 const rosto = document.getElementById("rosto");
 const textoStatus = document.getElementById("texto-status");
 const botaoEnviar = formulario.querySelector("button[type='submit']");
+const botoesAcao = document.querySelectorAll(".acao-chat");
 
 const ITERACOES_PBKDF2 = 310000;
 let etapa = "conversa";
 let operacao = "";
 let mensagemPendente = "";
+let senhaIndividualPendente = "";
 
 function adicionarMensagem(texto, autor) {
   const balao = document.createElement("div");
@@ -91,18 +93,41 @@ async function derivarChave(senha, sal) {
   );
 }
 
-async function criptografar(texto, senha) {
+async function criptografar(texto, senhaIndividual, senhaMestre) {
   const sal = crypto.getRandomValues(new Uint8Array(16));
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const chave = await derivarChave(senha, sal);
-  const cifra = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv },
-    chave,
-    new TextEncoder().encode(texto)
+  const salIndividual = crypto.getRandomValues(new Uint8Array(16));
+  const ivIndividual = crypto.getRandomValues(new Uint8Array(12));
+  const salMestre = crypto.getRandomValues(new Uint8Array(16));
+  const ivMestre = crypto.getRandomValues(new Uint8Array(12));
+  const chaveMensagem = await crypto.subtle.generateKey(
+    { name: "AES-GCM", length: 256 },
+    true,
+    ["encrypt", "decrypt"]
   );
+  const chaveExportada = await crypto.subtle.exportKey("raw", chaveMensagem);
+  const [chaveIndividual, chaveMestreDerivada] = await Promise.all([
+    derivarChave(senhaIndividual, salIndividual),
+    derivarChave(senhaMestre, salMestre)
+  ]);
+  const [chaveIndividualCifrada, chaveMestreCifrada, cifra] = await Promise.all([
+    crypto.subtle.encrypt({ name: "AES-GCM", iv: ivIndividual }, chaveIndividual, chaveExportada),
+    crypto.subtle.encrypt({ name: "AES-GCM", iv: ivMestre }, chaveMestreDerivada, chaveExportada),
+    crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      chaveMensagem,
+      new TextEncoder().encode(texto)
+    )
+  ]);
+
   return [
-    "HARU2",
-    codificarBase64Url(sal),
+    "HARU3",
+    codificarBase64Url(salIndividual),
+    codificarBase64Url(ivIndividual),
+    codificarBase64Url(new Uint8Array(chaveIndividualCifrada)),
+    codificarBase64Url(salMestre),
+    codificarBase64Url(ivMestre),
+    codificarBase64Url(new Uint8Array(chaveMestreCifrada)),
     codificarBase64Url(iv),
     codificarBase64Url(new Uint8Array(cifra))
   ].join(":");
@@ -110,19 +135,80 @@ async function criptografar(texto, senha) {
 
 async function descriptografar(codigo, senha) {
   const partes = codigo.split(":");
-  if (partes.length !== 4 || partes[0] !== "HARU2") {
+  if (partes[0] === "HARU2") {
+    if (partes.length !== 4) {
+      throw new Error("Formato de código inválido.");
+    }
+
+    const sal = decodificarBase64Url(partes[1]);
+    const iv = decodificarBase64Url(partes[2]);
+    const cifra = decodificarBase64Url(partes[3]);
+    if (sal.length !== 16 || iv.length !== 12 || cifra.length < 16) {
+      throw new Error("Formato de código inválido.");
+    }
+
+    const chave = await derivarChave(senha, sal);
+    const texto = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, chave, cifra);
+    return new TextDecoder().decode(texto);
+  }
+
+  if (partes.length !== 9 || partes[0] !== "HARU3") {
     throw new Error("Formato de código não reconhecido.");
   }
 
-  const sal = decodificarBase64Url(partes[1]);
-  const iv = decodificarBase64Url(partes[2]);
-  const cifra = decodificarBase64Url(partes[3]);
-  if (sal.length !== 16 || iv.length !== 12 || cifra.length < 16) {
+  const salIndividual = decodificarBase64Url(partes[1]);
+  const ivIndividual = decodificarBase64Url(partes[2]);
+  const chaveIndividualCifrada = decodificarBase64Url(partes[3]);
+  const salMestre = decodificarBase64Url(partes[4]);
+  const ivMestre = decodificarBase64Url(partes[5]);
+  const chaveMestreCifrada = decodificarBase64Url(partes[6]);
+  const ivMensagem = decodificarBase64Url(partes[7]);
+  const cifra = decodificarBase64Url(partes[8]);
+  if (
+    salIndividual.length !== 16 || salMestre.length !== 16 ||
+    ivIndividual.length !== 12 || ivMestre.length !== 12 ||
+    chaveIndividualCifrada.length !== 48 || chaveMestreCifrada.length !== 48 ||
+    ivMensagem.length !== 12 || cifra.length < 16
+  ) {
     throw new Error("Formato de código inválido.");
   }
 
-  const chave = await derivarChave(senha, sal);
-  const texto = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, chave, cifra);
+  const tentativas = [
+    { sal: salIndividual, iv: ivIndividual, cifra: chaveIndividualCifrada },
+    { sal: salMestre, iv: ivMestre, cifra: chaveMestreCifrada }
+  ];
+  let chaveMensagem;
+  for (const tentativa of tentativas) {
+    try {
+      const chaveDerivada = await derivarChave(senha, tentativa.sal);
+      const chaveRaw = await crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: tentativa.iv },
+        chaveDerivada,
+        tentativa.cifra
+      );
+      chaveMensagem = await crypto.subtle.importKey(
+        "raw",
+        chaveRaw,
+        { name: "AES-GCM" },
+        false,
+        ["decrypt"]
+      );
+      break;
+    } catch (erro) {
+      if (tentativa === tentativas[tentativas.length - 1]) {
+        throw erro;
+      }
+    }
+  }
+
+  if (!chaveMensagem) {
+    throw new Error("Senha incorreta ou código inválido.");
+  }
+  const texto = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv: ivMensagem },
+    chaveMensagem,
+    cifra
+  );
   return new TextDecoder().decode(texto);
 }
 
@@ -135,7 +221,7 @@ function normalizar(texto) {
 }
 
 function reconhecerPedido(texto) {
-  if (texto.startsWith("HARU2:")) {
+  if (texto.startsWith("HARU2:") || texto.startsWith("HARU3:")) {
     return { operacao: "descriptografar", conteudo: texto };
   }
 
@@ -164,9 +250,15 @@ function reconhecerPedido(texto) {
 }
 
 function pedirSenha() {
-  etapa = "senha";
-  configurarCampo("password", "Senha compartilhada (mínimo 8 caracteres)");
-  return "Digite a senha compartilhada com a outra pessoa. Envie-a por um canal separado do código.";
+  if (operacao === "criptografar") {
+    etapa = "senha-individual";
+    configurarCampo("password", "Senha individual (mínimo 8 caracteres)");
+    return "Digite a senha individual desta mensagem. Além dela, o código também poderá ser aberto com a senha mestre.";
+  }
+
+  etapa = "senha-leitura";
+  configurarCampo("password", "Senha individual ou mestre");
+  return "Digite a senha individual ou a senha mestre.";
 }
 
 function adicionarBotaoCopiar(balao, codigo) {
@@ -194,21 +286,39 @@ async function responder(texto) {
     mensagemPendente = texto;
     return pedirSenha();
   }
-  if (etapa === "senha") {
+  if (etapa === "senha-individual") {
     if (texto.length < 8) {
-      return "Use uma senha compartilhada com pelo menos 8 caracteres.";
+      return "Use uma senha individual com pelo menos 8 caracteres.";
     }
+    senhaIndividualPendente = texto;
+    etapa = "senha-mestre";
+    configurarCampo("password", "Senha mestre (mínimo 8 caracteres)");
+    return "Agora digite a senha mestre. O Haru não a salva; o código permitirá abrir a mensagem com a senha individual ou com a senha mestre.";
+  }
+  if (etapa === "senha-mestre") {
+    if (texto.length < 8) {
+      return "Use uma senha mestre com pelo menos 8 caracteres.";
+    }
+
     if (!window.isSecureContext || !crypto.subtle) {
+      senhaIndividualPendente = "";
       throw new Error("Abra o Haru pelo endereço HTTPS do GitHub Pages para usar a criptografia segura.");
     }
 
-    if (operacao === "criptografar") {
-      const codigo = await criptografar(mensagemPendente, texto);
-      etapa = "conversa";
-      operacao = "";
-      mensagemPendente = "";
-      configurarCampo("text", "Ex.: criptografar texto: minha mensagem");
-      return "Mensagem criptografada. Envie este código e compartilhe a senha por outro canal:\n\n" + codigo;
+    const codigo = await criptografar(mensagemPendente, senhaIndividualPendente, texto);
+    etapa = "conversa";
+    operacao = "";
+    mensagemPendente = "";
+    senhaIndividualPendente = "";
+    configurarCampo("text", "Escolha uma ação acima para começar");
+    return "Mensagem criptografada. Envie este código; a pessoa poderá abri-lo com a senha individual ou com a senha mestre:\n\n" + codigo;
+  }
+  if (etapa === "senha-leitura") {
+    if (texto.length < 8) {
+      return "A senha deve ter pelo menos 8 caracteres.";
+    }
+    if (!window.isSecureContext || !crypto.subtle) {
+      throw new Error("Abra o Haru pelo endereço HTTPS do GitHub Pages para usar a criptografia segura.");
     }
 
     try {
@@ -216,10 +326,10 @@ async function responder(texto) {
       etapa = "conversa";
       operacao = "";
       mensagemPendente = "";
-      configurarCampo("text", "Ex.: criptografar texto: minha mensagem");
+      configurarCampo("text", "Escolha uma ação acima para começar");
       return original;
     } catch (erro) {
-      return "Senha incorreta ou código inválido. Confira o código e tente novamente.";
+      return "Senha incorreta ou código inválido. Confira a senha individual ou tente a senha mestre.";
     }
   }
 
@@ -229,14 +339,17 @@ async function responder(texto) {
 
   const pedido = reconhecerPedido(texto);
   if (!pedido) {
-    return "Para criptografar, escreva “criptografar texto: sua mensagem” ou “preciso mandar uma mensagem criptografada”. Para ler, cole o código começando com “HARU2:” ou escreva “descriptografar: código”.";
+    return "Para criptografar, escreva “criptografar texto: sua mensagem” ou “preciso mandar uma mensagem criptografada”. Para ler, cole um código “HARU2:” ou “HARU3:”, ou escreva “descriptografar: código”.";
   }
 
   operacao = pedido.operacao;
   mensagemPendente = pedido.conteudo;
   if (!mensagemPendente) {
     etapa = operacao === "criptografar" ? "mensagem" : "codigo";
-    configurarCampo("text", operacao === "criptografar" ? "Digite a mensagem" : "Cole o código HARU2 recebido");
+    configurarCampo(
+      "text",
+      operacao === "criptografar" ? "Digite a mensagem" : "Cole o código HARU2 ou HARU3 recebido"
+    );
     return operacao === "criptografar"
       ? "Claro! Qual mensagem você quer criptografar?"
       : "Cole aqui o código criptografado que você recebeu.";
@@ -251,6 +364,32 @@ async function responder(texto) {
   return pedirSenha();
 }
 
+function iniciarOperacao(novaOperacao) {
+  operacao = novaOperacao;
+  mensagemPendente = "";
+  senhaIndividualPendente = "";
+  etapa = novaOperacao === "criptografar" ? "mensagem" : "codigo";
+  configurarCampo(
+    "text",
+    novaOperacao === "criptografar" ? "Digite o texto para criptografar" : "Cole o código HARU2 ou HARU3 recebido"
+  );
+  adicionarMensagem(
+    novaOperacao === "criptografar"
+      ? "Qual texto você deseja criptografar?"
+      : "Cole aqui o código que deseja descriptografar.",
+    "ia"
+  );
+  campo.focus();
+}
+
+botoesAcao[0].addEventListener("click", function () {
+  iniciarOperacao("criptografar");
+});
+
+botoesAcao[1].addEventListener("click", function () {
+  iniciarOperacao("descriptografar");
+});
+
 formulario.addEventListener("submit", async function (evento) {
   evento.preventDefault();
 
@@ -262,12 +401,15 @@ formulario.addEventListener("submit", async function (evento) {
   adicionarMensagem(campo.type === "password" ? "••••••••" : texto, "usuario");
   campo.value = "";
   botaoEnviar.disabled = true;
+  botoesAcao.forEach(botao => {
+    botao.disabled = true;
+  });
   mudarEstado("pensando", "Trabalhando…");
 
   try {
     const resposta = await responder(texto);
     const balao = adicionarMensagem(resposta, "ia");
-    const codigo = resposta.match(/HARU2:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+/);
+    const codigo = resposta.match(/HARU3:(?:[A-Za-z0-9_-]+:){7}[A-Za-z0-9_-]+/);
     if (codigo) {
       adicionarBotaoCopiar(balao, codigo[0]);
     }
@@ -275,6 +417,9 @@ formulario.addEventListener("submit", async function (evento) {
     adicionarMensagem(erro.message || "Não foi possível concluir a operação.", "ia");
   } finally {
     botaoEnviar.disabled = false;
+    botoesAcao.forEach(botao => {
+      botao.disabled = false;
+    });
     mudarEstado("ocioso", "Pronta para criptografar");
     campo.focus();
   }

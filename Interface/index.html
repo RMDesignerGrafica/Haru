@@ -24,11 +24,20 @@
     <section class="chat">
       <div class="mensagens" id="mensagens" aria-live="polite"></div>
 
+      <div class="acoes-chat" aria-label="Ações do Haru">
+        <button type="button" class="acao-chat" id="acao-criptografar">
+          Criptografar texto
+        </button>
+        <button type="button" class="acao-chat" id="acao-descriptografar">
+          Descriptografar texto
+        </button>
+      </div>
+
       <form class="entrada" id="formulario">
         <input
           type="text"
           id="campo"
-          placeholder="Ex.: criptografar texto: minha mensagem"
+          placeholder="Escolha uma ação acima para começar"
           aria-label="Mensagem"
           autocomplete="off"
           enterkeyhint="send">
