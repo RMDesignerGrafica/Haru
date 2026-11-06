@@ -24,6 +24,7 @@ body {
   color: var(--tinta);
   font-family: "Segoe UI", system-ui, sans-serif;
   font-size: 1rem;
+  overscroll-behavior: none;
 }
 
 /* Janela dividida entre a identidade do Haru e o chat */
@@ -31,6 +32,7 @@ body {
   display: grid;
   grid-template-columns: 280px 1fr;
   height: 100vh;
+  height: 100dvh;
 }
 
 /* ---------- Haru, o Yorkshire ---------- */
@@ -72,6 +74,7 @@ body {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  height: 100dvh;
   min-height: 0;
 }
 
@@ -133,6 +136,7 @@ body {
 
 .entrada input {
   flex: 1;
+  min-width: 0;
   padding: 12px 14px;
   border: 1px solid var(--linha);
   border-radius: 10px;
@@ -141,6 +145,7 @@ body {
 }
 
 .entrada button {
+  flex-shrink: 0;
   padding: 0 22px;
   background: var(--painel);
   color: var(--claro);
@@ -155,6 +160,11 @@ body {
   background: var(--tinta);
 }
 
+.entrada button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
 input:focus-visible,
 button:focus-visible {
   outline: 2px solid var(--painel);
@@ -166,7 +176,7 @@ button:focus-visible {
 @media (max-width: 700px) {
   .janela {
     grid-template-columns: 1fr;
-    grid-template-rows: auto 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
   }
 
   .painel-rosto {
@@ -186,7 +196,53 @@ button:focus-visible {
     height: auto;
   }
 
+  .mensagens {
+    padding: 16px;
+  }
+
   .msg {
     max-width: 88%;
+  }
+
+  .entrada {
+    padding:
+      12px
+      12px
+      calc(12px + env(safe-area-inset-bottom));
+  }
+
+  .entrada input {
+    padding: 12px;
+  }
+
+  .entrada button {
+    padding: 0 16px;
+  }
+}
+
+@media (max-width: 380px) {
+  .painel-rosto {
+    gap: 10px;
+  }
+
+  .identidade h1 {
+    font-size: 1.3rem;
+  }
+
+  .identidade p {
+    font-size: 0.85rem;
+  }
+
+  .rosto {
+    width: 52px;
+    height: 52px;
+  }
+
+  .entrada {
+    gap: 6px;
+  }
+
+  .entrada button {
+    padding: 0 12px;
   }
 }
