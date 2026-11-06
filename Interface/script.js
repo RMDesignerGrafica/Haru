@@ -10,7 +10,6 @@ const ITERACOES_PBKDF2 = 310000;
 let etapa = "conversa";
 let operacao = "";
 let mensagemPendente = "";
-let senhaIndividualPendente = "";
 
 function adicionarMensagem(texto, autor) {
   const balao = document.createElement("div");
@@ -93,41 +92,18 @@ async function derivarChave(senha, sal) {
   );
 }
 
-async function criptografar(texto, senhaIndividual, senhaMestre) {
+async function criptografar(texto, senha) {
   const sal = crypto.getRandomValues(new Uint8Array(16));
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const salIndividual = crypto.getRandomValues(new Uint8Array(16));
-  const ivIndividual = crypto.getRandomValues(new Uint8Array(12));
-  const salMestre = crypto.getRandomValues(new Uint8Array(16));
-  const ivMestre = crypto.getRandomValues(new Uint8Array(12));
-  const chaveMensagem = await crypto.subtle.generateKey(
-    { name: "AES-GCM", length: 256 },
-    true,
-    ["encrypt", "decrypt"]
+  const chave = await derivarChave(senha, sal);
+  const cifra = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    chave,
+    new TextEncoder().encode(texto)
   );
-  const chaveExportada = await crypto.subtle.exportKey("raw", chaveMensagem);
-  const [chaveIndividual, chaveMestreDerivada] = await Promise.all([
-    derivarChave(senhaIndividual, salIndividual),
-    derivarChave(senhaMestre, salMestre)
-  ]);
-  const [chaveIndividualCifrada, chaveMestreCifrada, cifra] = await Promise.all([
-    crypto.subtle.encrypt({ name: "AES-GCM", iv: ivIndividual }, chaveIndividual, chaveExportada),
-    crypto.subtle.encrypt({ name: "AES-GCM", iv: ivMestre }, chaveMestreDerivada, chaveExportada),
-    crypto.subtle.encrypt(
-      { name: "AES-GCM", iv },
-      chaveMensagem,
-      new TextEncoder().encode(texto)
-    )
-  ]);
-
   return [
-    "HARU3",
-    codificarBase64Url(salIndividual),
-    codificarBase64Url(ivIndividual),
-    codificarBase64Url(new Uint8Array(chaveIndividualCifrada)),
-    codificarBase64Url(salMestre),
-    codificarBase64Url(ivMestre),
-    codificarBase64Url(new Uint8Array(chaveMestreCifrada)),
+    "HARU2",
+    codificarBase64Url(sal),
     codificarBase64Url(iv),
     codificarBase64Url(new Uint8Array(cifra))
   ].join(":");
@@ -252,13 +228,13 @@ function reconhecerPedido(texto) {
 function pedirSenha() {
   if (operacao === "criptografar") {
     etapa = "senha-individual";
-    configurarCampo("password", "Senha individual (mínimo 8 caracteres)");
-    return "Digite a senha individual desta mensagem. Além dela, o código também poderá ser aberto com a senha mestre.";
+    configurarCampo("password", "Senha desta mensagem (mínimo 8 caracteres)");
+    return "Crie uma senha para esta mensagem. A mesma senha será necessária para abri-la.";
   }
 
   etapa = "senha-leitura";
-  configurarCampo("password", "Senha individual ou mestre");
-  return "Digite a senha individual ou a senha mestre.";
+  configurarCampo("password", "Senha da mensagem");
+  return "Digite a senha usada para criptografar esta mensagem.";
 }
 
 function adicionarBotaoCopiar(balao, codigo) {
@@ -288,30 +264,18 @@ async function responder(texto) {
   }
   if (etapa === "senha-individual") {
     if (texto.length < 8) {
-      return "Use uma senha individual com pelo menos 8 caracteres.";
+      return "Use uma senha com pelo menos 8 caracteres.";
     }
-    senhaIndividualPendente = texto;
-    etapa = "senha-mestre";
-    configurarCampo("password", "Senha mestre (mínimo 8 caracteres)");
-    return "Agora digite a senha mestre. O Haru não a salva; o código permitirá abrir a mensagem com a senha individual ou com a senha mestre.";
-  }
-  if (etapa === "senha-mestre") {
-    if (texto.length < 8) {
-      return "Use uma senha mestre com pelo menos 8 caracteres.";
-    }
-
     if (!window.isSecureContext || !crypto.subtle) {
-      senhaIndividualPendente = "";
       throw new Error("Abra o Haru pelo endereço HTTPS do GitHub Pages para usar a criptografia segura.");
     }
 
-    const codigo = await criptografar(mensagemPendente, senhaIndividualPendente, texto);
+    const codigo = await criptografar(mensagemPendente, texto);
     etapa = "conversa";
     operacao = "";
     mensagemPendente = "";
-    senhaIndividualPendente = "";
     configurarCampo("text", "Escolha uma ação acima para começar");
-    return "Mensagem criptografada. Envie este código; a pessoa poderá abri-lo com a senha individual ou com a senha mestre:\n\n" + codigo;
+    return "Mensagem criptografada. Envie este código e compartilhe a senha por outro canal:\n\n" + codigo;
   }
   if (etapa === "senha-leitura") {
     if (texto.length < 8) {
@@ -329,7 +293,7 @@ async function responder(texto) {
       configurarCampo("text", "Escolha uma ação acima para começar");
       return original;
     } catch (erro) {
-      return "Senha incorreta ou código inválido. Confira a senha individual ou tente a senha mestre.";
+      return "Senha incorreta ou código inválido. Confira a senha da mensagem e tente novamente.";
     }
   }
 
@@ -367,7 +331,6 @@ async function responder(texto) {
 function iniciarOperacao(novaOperacao) {
   operacao = novaOperacao;
   mensagemPendente = "";
-  senhaIndividualPendente = "";
   etapa = novaOperacao === "criptografar" ? "mensagem" : "codigo";
   configurarCampo(
     "text",
@@ -409,7 +372,9 @@ formulario.addEventListener("submit", async function (evento) {
   try {
     const resposta = await responder(texto);
     const balao = adicionarMensagem(resposta, "ia");
-    const codigo = resposta.match(/HARU3:(?:[A-Za-z0-9_-]+:){7}[A-Za-z0-9_-]+/);
+    const codigo = resposta.match(
+      /(?:HARU2:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+|HARU3:(?:[A-Za-z0-9_-]+:){7}[A-Za-z0-9_-]+)/
+    );
     if (codigo) {
       adicionarBotaoCopiar(balao, codigo[0]);
     }

@@ -15,11 +15,10 @@ O workflow publica somente os arquivos estáticos da pasta `Interface`.
 
 - Use os botões **Criptografar texto** e **Descriptografar texto** para iniciar uma operação; o Haru pedirá a mensagem ou o código no chat.
 - Ao criptografar, informe uma senha individual e depois a senha mestre. O código `HARU3` pode ser aberto com qualquer uma delas.
-- Ao criptografar, informe uma senha individual e depois a senha mestre. O código `HARU3` pode ser aberto com qualquer uma delas.
-- Digite a senha mestre no Haru; ela não fica gravada no site nem no código-fonte. Compartilhe-a somente com quem deve poder abrir as mensagens, por um canal seguro.
-- Envie o código gerado. A outra pessoa abre o mesmo site, cola o código e informa a senha individual ou a senha mestre.
+- Ao criptografar uma nova mensagem, crie uma senha com pelo menos 8 caracteres.
+- Envie o código `HARU2` gerado e compartilhe a senha por um canal separado. A outra pessoa abre o mesmo site, cola o código e informa essa senha.
 - O botão **Copiar código** copia somente o código criptografado.
 
-A criptografia usa a API Web Crypto do navegador: AES-GCM de 256 bits, com uma chave de mensagem aleatória protegida por duas chaves derivadas separadamente por PBKDF2/SHA-256. A mensagem e as senhas não são enviadas ao GitHub Pages. Use o endereço HTTPS do site; o navegador precisa de um contexto seguro para criptografar.
+A criptografia usa a API Web Crypto do navegador: AES-GCM de 256 bits, com uma chave derivada da senha por PBKDF2/SHA-256 e sal e vetor de inicialização aleatórios. A mensagem e a senha não são enviadas ao GitHub Pages. Use o endereço HTTPS do site; o navegador precisa de um contexto seguro para criptografar.
 
-Códigos `HARU2` da primeira versão web continuam sendo aceitos com a senha original. Códigos `HARU1` criados pela versão Python para desktop não são compatíveis. Gere um novo código no site para conversar entre dispositivos.
+Códigos `HARU3` enviados pela versão anterior continuam aceitos; eles podem ser abertos com a senha individual ou com a senha mestre usada na época. Códigos `HARU1` criados pela versão Python para desktop não são compatíveis.
