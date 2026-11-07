@@ -5,11 +5,16 @@ const rosto = document.getElementById("rosto");
 const textoStatus = document.getElementById("texto-status");
 const botaoEnviar = formulario.querySelector("button[type='submit']");
 const botoesAcao = document.querySelectorAll(".acao-chat");
+const entradaArquivoCriptografar = document.getElementById("arquivo-para-criptografar");
+const entradaArquivoDescriptografar = document.getElementById("arquivo-para-descriptografar");
 
 const ITERACOES_PBKDF2 = 310000;
+const TAMANHO_MAXIMO_ARQUIVO = 50 * 1024 * 1024;
+const CABECALHO_ARQUIVO = new TextEncoder().encode("HARUFILE1");
 let etapa = "conversa";
 let operacao = "";
 let mensagemPendente = "";
+let arquivoPendente = null;
 
 function adicionarMensagem(texto, autor) {
   const balao = document.createElement("div");
@@ -188,6 +193,157 @@ async function descriptografar(codigo, senha) {
   return new TextDecoder().decode(texto);
 }
 
+function arquivoEhSuportado(arquivo) {
+  const extensao = arquivo.name.toLowerCase().split(".").pop();
+  return arquivo.type === "application/pdf" ||
+    arquivo.type.startsWith("image/") ||
+    extensao === "pdf" ||
+    ["avif", "bmp", "gif", "heic", "heif", "jpeg", "jpg", "png", "svg", "tif", "tiff", "webp"].includes(extensao);
+}
+
+async function criptografarArquivo(arquivo, senha) {
+  const conteudoOriginal = new Uint8Array(await arquivo.arrayBuffer());
+  const metadados = new TextEncoder().encode(JSON.stringify({
+    name: arquivo.name,
+    type: arquivo.type || "application/octet-stream"
+  }));
+  const textoClaro = new Uint8Array(4 + metadados.length + conteudoOriginal.length);
+  new DataView(textoClaro.buffer).setUint32(0, metadados.length);
+  textoClaro.set(metadados, 4);
+  textoClaro.set(conteudoOriginal, 4 + metadados.length);
+
+  const sal = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const chave = await derivarChave(senha, sal);
+  const cifra = new Uint8Array(await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    chave,
+    textoClaro
+  ));
+  const recipiente = new Uint8Array(
+    CABECALHO_ARQUIVO.length + sal.length + iv.length + cifra.length
+  );
+  recipiente.set(CABECALHO_ARQUIVO);
+  recipiente.set(sal, CABECALHO_ARQUIVO.length);
+  recipiente.set(iv, CABECALHO_ARQUIVO.length + sal.length);
+  recipiente.set(cifra, CABECALHO_ARQUIVO.length + sal.length + iv.length);
+  return new Blob([recipiente], { type: "application/octet-stream" });
+}
+
+async function descriptografarArquivo(arquivo, senha) {
+  const recipiente = new Uint8Array(await arquivo.arrayBuffer());
+  const tamanhoCabecalho = CABECALHO_ARQUIVO.length;
+  const deslocamentoIv = tamanhoCabecalho + 16;
+  const deslocamentoCifra = deslocamentoIv + 12;
+  if (
+    recipiente.length <= deslocamentoCifra + 16 ||
+    !CABECALHO_ARQUIVO.every((byte, indice) => recipiente[indice] === byte)
+  ) {
+    throw new Error("O arquivo não é um arquivo Haru protegido válido.");
+  }
+
+  const sal = recipiente.slice(tamanhoCabecalho, deslocamentoIv);
+  const iv = recipiente.slice(deslocamentoIv, deslocamentoCifra);
+  const chave = await derivarChave(senha, sal);
+  let textoClaro;
+  try {
+    textoClaro = new Uint8Array(await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv },
+      chave,
+      recipiente.subarray(deslocamentoCifra)
+    ));
+  } catch (erro) {
+    throw new Error("Senha incorreta ou arquivo protegido danificado.");
+  }
+
+  if (textoClaro.length < 4) {
+    throw new Error("O arquivo protegido está incompleto ou danificado.");
+  }
+  const tamanhoMetadados = new DataView(
+    textoClaro.buffer,
+    textoClaro.byteOffset,
+    textoClaro.byteLength
+  ).getUint32(0);
+  if (tamanhoMetadados === 0 || tamanhoMetadados > textoClaro.length - 4) {
+    throw new Error("Os dados do arquivo protegido são inválidos.");
+  }
+
+  let metadados;
+  try {
+    metadados = JSON.parse(new TextDecoder().decode(textoClaro.subarray(4, 4 + tamanhoMetadados)));
+  } catch (erro) {
+    throw new Error("Os dados do arquivo protegido são inválidos.");
+  }
+  if (
+    typeof metadados.name !== "string" ||
+    typeof metadados.type !== "string" ||
+    !metadados.name ||
+    metadados.name.includes("/") ||
+    metadados.name.includes("\\")
+  ) {
+    throw new Error("O nome original do arquivo protegido é inválido.");
+  }
+
+  const conteudo = textoClaro.slice(4 + tamanhoMetadados);
+  if (conteudo.length > TAMANHO_MAXIMO_ARQUIVO) {
+    throw new Error("O arquivo descriptografado excede o limite de 50 MB.");
+  }
+  return {
+    name: metadados.name,
+    blob: new Blob([conteudo], { type: metadados.type })
+  };
+}
+
+function adicionarBotaoDownload(balao, blob, nomeArquivo, textoBotao) {
+  const link = document.createElement("a");
+  link.className = "copiar-codigo";
+  link.href = URL.createObjectURL(blob);
+  link.download = nomeArquivo;
+  link.textContent = textoBotao;
+  link.addEventListener("click", function () {
+    window.setTimeout(() => URL.revokeObjectURL(link.href), 60000);
+  }, { once: true });
+  balao.appendChild(link);
+}
+
+function prepararSeletorArquivo(arquivo, novaOperacao) {
+  arquivoPendente = null;
+  mensagemPendente = "";
+  operacao = novaOperacao;
+  etapa = "arquivo-senha";
+
+  if (!arquivo) {
+    etapa = "conversa";
+    operacao = "";
+    return;
+  }
+
+  if (novaOperacao === "criptografar-arquivo") {
+    if (!arquivoEhSuportado(arquivo)) {
+      etapa = "conversa";
+      operacao = "";
+      adicionarMensagem("Escolha uma imagem ou um arquivo PDF.", "ia");
+      return;
+    }
+    if (arquivo.size > TAMANHO_MAXIMO_ARQUIVO) {
+      etapa = "conversa";
+      operacao = "";
+      adicionarMensagem("Este arquivo excede o limite de 50 MB. Escolha um arquivo menor.", "ia");
+      return;
+    }
+  } else if (arquivo.size > TAMANHO_MAXIMO_ARQUIVO + 1024 * 1024) {
+    etapa = "conversa";
+    operacao = "";
+    adicionarMensagem("O arquivo protegido excede o limite aceito de 51 MB.", "ia");
+    return;
+  }
+
+  arquivoPendente = arquivo;
+  adicionarMensagem("Arquivo selecionado: " + arquivo.name, "usuario");
+  configurarCampo("password", "Senha do arquivo (mínimo 8 caracteres)");
+  adicionarMensagem("Digite a senha do arquivo. Quem receber precisará da mesma senha para abri-lo.", "ia");
+}
+
 function normalizar(texto) {
   return texto
     .normalize("NFD")
@@ -254,6 +410,46 @@ function adicionarBotaoCopiar(balao, codigo) {
 }
 
 async function responder(texto) {
+  if (etapa === "arquivo-senha") {
+    if (texto.length < 8) {
+      return "Use uma senha com pelo menos 8 caracteres.";
+    }
+    if (!arquivoPendente) {
+      etapa = "conversa";
+      operacao = "";
+      configurarCampo("text", "Escolha uma ação acima para começar");
+      return "Selecione o arquivo novamente para continuar.";
+    }
+    if (!window.isSecureContext || !crypto.subtle) {
+      throw new Error("Abra o Haru pelo endereço HTTPS do GitHub Pages para proteger arquivos.");
+    }
+
+    if (operacao === "criptografar-arquivo") {
+      const nomeProtegido = arquivoPendente.name + ".haru";
+      const blobProtegido = await criptografarArquivo(arquivoPendente, texto);
+      arquivoPendente = null;
+      etapa = "conversa";
+      operacao = "";
+      configurarCampo("text", "Escolha uma ação acima para começar");
+      const resposta = adicionarMensagem("Arquivo protegido. Baixe-o e envie o arquivo .haru para a outra pessoa:", "ia");
+      adicionarBotaoDownload(resposta, blobProtegido, nomeProtegido, "Baixar arquivo protegido");
+      return null;
+    }
+
+    try {
+      const resultado = await descriptografarArquivo(arquivoPendente, texto);
+      arquivoPendente = null;
+      etapa = "conversa";
+      operacao = "";
+      configurarCampo("text", "Escolha uma ação acima para começar");
+      const resposta = adicionarMensagem("Arquivo aberto. Baixe o arquivo original:", "ia");
+      adicionarBotaoDownload(resposta, resultado.blob, resultado.name, "Baixar arquivo original");
+      return null;
+    } catch (erro) {
+      return erro.message || "Não foi possível abrir o arquivo protegido.";
+    }
+  }
+
   if (etapa === "mensagem") {
     mensagemPendente = texto;
     return pedirSenha();
@@ -331,6 +527,7 @@ async function responder(texto) {
 function iniciarOperacao(novaOperacao) {
   operacao = novaOperacao;
   mensagemPendente = "";
+  arquivoPendente = null;
   etapa = novaOperacao === "criptografar" ? "mensagem" : "codigo";
   configurarCampo(
     "text",
@@ -353,6 +550,24 @@ botoesAcao[1].addEventListener("click", function () {
   iniciarOperacao("descriptografar");
 });
 
+document.getElementById("acao-criptografar-arquivo").addEventListener("click", function () {
+  entradaArquivoCriptografar.click();
+});
+
+document.getElementById("acao-descriptografar-arquivo").addEventListener("click", function () {
+  entradaArquivoDescriptografar.click();
+});
+
+entradaArquivoCriptografar.addEventListener("change", function () {
+  prepararSeletorArquivo(entradaArquivoCriptografar.files[0], "criptografar-arquivo");
+  entradaArquivoCriptografar.value = "";
+});
+
+entradaArquivoDescriptografar.addEventListener("change", function () {
+  prepararSeletorArquivo(entradaArquivoDescriptografar.files[0], "descriptografar-arquivo");
+  entradaArquivoDescriptografar.value = "";
+});
+
 formulario.addEventListener("submit", async function (evento) {
   evento.preventDefault();
 
@@ -364,13 +579,16 @@ formulario.addEventListener("submit", async function (evento) {
   adicionarMensagem(campo.type === "password" ? "••••••••" : texto, "usuario");
   campo.value = "";
   botaoEnviar.disabled = true;
-  botoesAcao.forEach(botao => {
+  document.querySelectorAll(".acao-chat").forEach(botao => {
     botao.disabled = true;
   });
   mudarEstado("pensando", "Trabalhando…");
 
   try {
     const resposta = await responder(texto);
+    if (resposta === null) {
+      return;
+    }
     const balao = adicionarMensagem(resposta, "ia");
     const codigo = resposta.match(
       /(?:HARU2:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+|HARU3:(?:[A-Za-z0-9_-]+:){7}[A-Za-z0-9_-]+)/
@@ -382,7 +600,7 @@ formulario.addEventListener("submit", async function (evento) {
     adicionarMensagem(erro.message || "Não foi possível concluir a operação.", "ia");
   } finally {
     botaoEnviar.disabled = false;
-    botoesAcao.forEach(botao => {
+    document.querySelectorAll(".acao-chat").forEach(botao => {
       botao.disabled = false;
     });
     mudarEstado("ocioso", "Pronta para criptografar");

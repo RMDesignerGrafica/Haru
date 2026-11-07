@@ -31,7 +31,19 @@
         <button type="button" class="acao-chat" id="acao-descriptografar">
           Descriptografar texto
         </button>
+        <button type="button" class="acao-chat acao-arquivo" id="acao-criptografar-arquivo">
+          Criptografar imagem/PDF
+        </button>
+        <button type="button" class="acao-chat acao-arquivo" id="acao-descriptografar-arquivo">
+          Abrir arquivo protegido
+        </button>
       </div>
+      <p class="aviso-arquivos">Imagens e PDFs de até 50 MB. Os arquivos são protegidos neste navegador.</p>
+
+      <input class="seletor-arquivo" type="file" id="arquivo-para-criptografar"
+             accept="image/*,.pdf,application/pdf" aria-label="Escolher imagem ou PDF">
+      <input class="seletor-arquivo" type="file" id="arquivo-para-descriptografar"
+             accept=".haru,application/octet-stream" aria-label="Escolher arquivo Haru protegido">
 
       <form class="entrada" id="formulario">
         <input
